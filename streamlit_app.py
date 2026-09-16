@@ -221,10 +221,11 @@ def new_decision_page():
     )
     with st.form("ticket_form"):
         message = st.text_area(
-            "Describe the issue",
+            "Describe the issue *",
             height=100,
             placeholder="e.g. My order arrived damaged, the box was crushed",
         )
+        st.caption("*Required. Everything below is optional.")
 
         with st.expander("📋 Order details (optional — improves accuracy)"):
             col1, col2 = st.columns(2)
