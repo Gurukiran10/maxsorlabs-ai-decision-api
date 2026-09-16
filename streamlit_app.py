@@ -10,12 +10,48 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="AI Support Decision Assistant", page_icon="🎫", layout="wide")
 
+# Streamlit shows a "Press Enter to submit form"/"Press Enter to apply" hint
+# under text inputs inside a form. It's a built-in UI affordance, not
+# something this app renders, and there's no public config flag to turn it
+# off - hiding the element it renders into is the only way.
+st.markdown(
+    '<style>div[data-testid="InputInstructions"] { display: none; }</style>',
+    unsafe_allow_html=True,
+)
+
 PROVIDER_LABELS = {
-    "gemini": "🟢 Gemini",
-    "groq": "🟡 Groq (fallback)",
-    "cache": "⚡ Cache (instant, no LLM call)",
-    "retrieval_gate": "🔎 Rule-based gate (off-topic, no LLM call)",
-    "fallback": "🔴 Fallback (all providers unavailable)",
+    "gemini": "🟢 Primary AI (Gemini)",
+    "groq": "🟡 Backup AI (Groq)",
+    "cache": "⚡ Instant — seen this exact ticket before",
+    "retrieval_gate": "🔎 Answered automatically, no AI call needed",
+    "fallback": "🔴 AI temporarily unavailable — generic response",
+}
+
+ACTION_LABELS = {
+    "APPROVE_RETURN": "Return Approved",
+    "REJECT_OUTSIDE_WINDOW": "Not Eligible — Outside the Return Window",
+    "REJECT_OPENED_ITEM": "Not Eligible — Item Already Opened",
+    "REJECT_FOOD_RETURN": "Not Eligible — Food Items Can't Be Returned",
+    "APPROVE_REFUND_OR_REPLACEMENT": "Refund or Replacement Approved",
+    "REQUEST_PHOTOS": "Photos Needed Before We Can Approve",
+    "APPROVE_REPLACEMENT": "Replacement Approved",
+    "REQUEST_DEFECT_EVIDENCE": "More Evidence Needed Before We Can Approve",
+    "REPLACE_CORRECT_ITEM": "Correct Item Will Be Sent",
+    "CANCEL_AND_REFUND": "Order Cancelled & Refunded",
+    "CANNOT_CANCEL_AFTER_DISPATCH": "Can't Cancel — Already Shipped",
+    "WAIT_AND_TRACK": "Please Wait — Still Within Normal Delivery Time",
+    "OPEN_SHIPPING_INVESTIGATION": "Shipping Investigation Opened",
+    "OFFER_REPLACEMENT_OR_REFUND": "Replacement or Refund Offered",
+    "NEEDS_MORE_INFORMATION": "More Information Needed",
+}
+
+SOURCE_LABELS = {
+    "cancellations.md": "Cancellation Policy",
+    "damaged_goods.md": "Damaged Goods Policy",
+    "defective_products.md": "Defective Product Policy",
+    "returns.md": "Returns Policy",
+    "shipping.md": "Shipping & Delivery Policy",
+    "wrong_item.md": "Wrong Item Policy",
 }
 
 
@@ -130,12 +166,13 @@ def render_decision(decision: dict | None):
         return
 
     action = decision["action"]
+    action_label = ACTION_LABELS.get(action, action)
     if action == "NEEDS_MORE_INFORMATION":
-        st.warning(f"**Action:** {action}")
+        st.warning(f"**{action_label}**")
     elif action.startswith("REJECT") or action == "CANNOT_CANCEL_AFTER_DISPATCH":
-        st.error(f"**Action:** {action}")
+        st.error(f"**{action_label}**")
     else:
-        st.success(f"**Action:** {action}")
+        st.success(f"**{action_label}**")
 
     col1, col2 = st.columns([1, 2])
     with col1:
@@ -148,9 +185,10 @@ def render_decision(decision: dict | None):
             st.caption("Answered by")
             st.write(PROVIDER_LABELS.get(provider, provider))
 
-    st.write(f"**Reasoning:** {decision['reason']}")
+    st.write(decision["reason"])
     if decision["sources"]:
-        st.caption("Sources: " + ", ".join(decision["sources"]))
+        friendly_sources = [SOURCE_LABELS.get(s, s) for s in decision["sources"]]
+        st.caption("Based on: " + ", ".join(friendly_sources))
 
 
 def new_decision_page():
