@@ -9,3 +9,4 @@ retrieval_cache/
 *.egg-info/
 .DS_Store
 candidate_pack_extracted/
+submission-email-draft.txt
