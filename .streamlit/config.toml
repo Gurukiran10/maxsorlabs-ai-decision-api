@@ -1,6 +1,5 @@
 [client]
-# Hides the "Deploy" button and Streamlit's own menu items from the
-# top-right toolbar. Not relevant for this assignment (it deploys to
-# Streamlit Community Cloud, which isn't part of the required setup) and
-# was confusing during local demos.
-toolbarMode = "minimal"
+# Hides only the "Deploy" button (not relevant here - it targets Streamlit
+# Community Cloud) while keeping the rest of the top-right menu (Settings,
+# Rerun, About, etc.) intact. "minimal" would hide the whole menu too.
+toolbarMode = "viewer"
