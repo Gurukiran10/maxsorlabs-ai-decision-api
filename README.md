@@ -35,6 +35,12 @@ copy .env.example .env       # or `cp` on macOS/Linux
 Edit `.env` and set `GEMINI_API_KEY` (get one at
 https://aistudio.google.com/u/0/api-keys) and a random `JWT_SECRET`.
 
+Optionally also set `GROQ_API_KEY` (free at https://console.groq.com/keys).
+If present, it's used as an automatic fallback LLM provider whenever Gemini
+fails — most notably free-tier quota exhaustion, which this project hit
+during development. Without it, the app behaves exactly as it did before:
+Gemini-only, with a safe `NEEDS_MORE_INFORMATION` fallback on failure.
+
 Build the local embedding index for the policy documents (one-time, or
 whenever `knowledge_base/` changes):
 
@@ -161,6 +167,14 @@ All endpoints except `/register`, `/login`, and `/health` require
 - **Config fails fast.** `src/config.py` uses `pydantic-settings` to validate
   `GEMINI_API_KEY`/`JWT_SECRET` at startup, not on the first request that
   happens to need them.
+- **Optional Groq fallback provider.** Gemini gets two attempts; if both
+  fail and `GROQ_API_KEY` is set, two attempts go to Groq (Llama 3.3 70B)
+  before finally giving up and returning `NEEDS_MORE_INFORMATION`. Groq is
+  entirely separate infrastructure and quota from Google, so this is a real
+  redundancy path, not just a second call against the same limit — directly
+  motivated by hitting Gemini's free-tier daily cap during development.
+  Without a Groq key configured, the app is unaffected and behaves exactly
+  as Gemini-only.
 - **Ticket + decision commit atomically.** The ticket row is flushed (gets an
   id) but not committed until its decision is also ready; if the decision
   pipeline raises, the transaction rolls back rather than leaving an

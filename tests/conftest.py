@@ -6,6 +6,10 @@ import os
 # src.config validates them at import time.
 os.environ.setdefault("GEMINI_API_KEY", "test-dummy-key")
 os.environ.setdefault("JWT_SECRET", "test-dummy-secret")
+# Force-disabled (not setdefault): tests must not pick up a real
+# GROQ_API_KEY from the developer's local .env, or the Groq fallback path
+# would activate unpredictably and attempt real network calls.
+os.environ["GROQ_API_KEY"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

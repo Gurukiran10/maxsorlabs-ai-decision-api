@@ -43,6 +43,12 @@ def _fake_response(text: str) -> MagicMock:
     return resp
 
 
+def _fake_groq_response(text: str) -> MagicMock:
+    resp = MagicMock()
+    resp.choices = [MagicMock(message=MagicMock(content=text))]
+    return resp
+
+
 @patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
 @patch.object(decision_module, "_get_client")
 def test_valid_json_response_is_accepted(mock_get_client, mock_retrieve):
@@ -189,3 +195,75 @@ def test_llm_failure_is_not_cached(mock_get_client, mock_retrieve):
 
     assert second_decision.action.value == "APPROVE_RETURN"
     assert mock_client.models.generate_content.call_count == 3  # 2 failed + 1 succeeded
+
+
+@patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
+@patch.object(decision_module, "_get_groq_client")
+@patch.object(decision_module, "_get_client")
+def test_falls_back_to_groq_when_gemini_exhausted(
+    mock_get_gemini_client, mock_get_groq_client, mock_retrieve, monkeypatch
+):
+    monkeypatch.setattr(decision_module, "GROQ_API_KEY", "test-dummy-groq-key")
+
+    mock_gemini = MagicMock()
+    mock_gemini.models.generate_content.side_effect = Exception("429 RESOURCE_EXHAUSTED")
+    mock_get_gemini_client.return_value = mock_gemini
+
+    mock_groq = MagicMock()
+    mock_groq.chat.completions.create.return_value = _fake_groq_response(
+        '{"action": "APPROVE_RETURN", "confidence": 0.8, '
+        '"reason": "Served by the fallback provider.", "sources": ["returns.md"]}'
+    )
+    mock_get_groq_client.return_value = mock_groq
+
+    decision, _ = decision_module.make_decision(SAMPLE_TICKET)
+
+    assert decision.action.value == "APPROVE_RETURN"
+    assert mock_gemini.models.generate_content.call_count == 2  # both gemini attempts used
+    mock_groq.chat.completions.create.assert_called_once()
+
+
+@patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
+@patch.object(decision_module, "_get_groq_client")
+@patch.object(decision_module, "_get_client")
+def test_groq_not_used_when_no_key_configured(
+    mock_get_gemini_client, mock_get_groq_client, mock_retrieve, monkeypatch
+):
+    """Without a GROQ_API_KEY, the app must behave exactly as it did before
+    the fallback existed - Gemini-only, no attempt to construct a Groq
+    client at all."""
+    monkeypatch.setattr(decision_module, "GROQ_API_KEY", "")
+
+    mock_gemini = MagicMock()
+    mock_gemini.models.generate_content.side_effect = Exception("429 RESOURCE_EXHAUSTED")
+    mock_get_gemini_client.return_value = mock_gemini
+
+    decision, _ = decision_module.make_decision(SAMPLE_TICKET)
+
+    assert decision.action.value == "NEEDS_MORE_INFORMATION"  # FALLBACK_DECISION
+    assert mock_gemini.models.generate_content.call_count == 2
+    mock_get_groq_client.assert_not_called()
+
+
+@patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
+@patch.object(decision_module, "_get_groq_client")
+@patch.object(decision_module, "_get_client")
+def test_final_fallback_when_both_providers_fail(
+    mock_get_gemini_client, mock_get_groq_client, mock_retrieve, monkeypatch
+):
+    monkeypatch.setattr(decision_module, "GROQ_API_KEY", "test-dummy-groq-key")
+
+    mock_gemini = MagicMock()
+    mock_gemini.models.generate_content.side_effect = Exception("gemini down")
+    mock_get_gemini_client.return_value = mock_gemini
+
+    mock_groq = MagicMock()
+    mock_groq.chat.completions.create.side_effect = Exception("groq also down")
+    mock_get_groq_client.return_value = mock_groq
+
+    decision, _ = decision_module.make_decision(SAMPLE_TICKET)
+
+    assert decision.action.value == "NEEDS_MORE_INFORMATION"  # FALLBACK_DECISION
+    assert decision.confidence == 0.5
+    assert mock_gemini.models.generate_content.call_count == 2
+    assert mock_groq.chat.completions.create.call_count == 2

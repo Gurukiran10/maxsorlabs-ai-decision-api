@@ -7,8 +7,9 @@ import logging
 import time
 
 from google import genai
+from groq import Groq
 
-from src.config import GEMINI_API_KEY, RETRIEVAL_CACHE_DIR
+from src.config import GEMINI_API_KEY, GROQ_API_KEY, RETRIEVAL_CACHE_DIR
 from src.retrieval import retrieve
 from src.schemas import LLMDecision
 
@@ -43,7 +44,13 @@ def _save_decision_cache(cache: dict) -> None:
     DECISION_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     DECISION_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
-GENERATION_MODEL = "gemini-3.6-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
+# Fallback provider used when Gemini fails (typically free-tier quota
+# exhaustion, which is a real failure mode this project hit during
+# development, not a hypothetical one). Groq's free tier is generous and
+# entirely separate infrastructure/quota from Google's, so it's a genuine
+# redundancy path rather than just a second call to the same limit.
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # Minimum cosine similarity the best-matching policy chunk must clear before
 # the LLM is even consulted. Empirically, genuinely relevant tickets score
@@ -96,14 +103,22 @@ FALLBACK_DECISION = LLMDecision(
     sources=[],
 )
 
-_client: genai.Client | None = None
+_gemini_client: genai.Client | None = None
+_groq_client: Groq | None = None
 
 
 def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=GEMINI_API_KEY)
-    return _client
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    return _gemini_client
+
+
+def _get_groq_client() -> Groq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = Groq(api_key=GROQ_API_KEY)
+    return _groq_client
 
 
 def _build_ticket_facts(ticket: dict) -> str:
@@ -134,11 +149,11 @@ def _extract_json(raw_text: str) -> dict:
     return json.loads(text.strip())
 
 
-def _call_llm(prompt: str) -> str:
+def _call_gemini(prompt: str) -> str:
     client = _get_client()
     start = time.monotonic()
     response = client.models.generate_content(
-        model=GENERATION_MODEL,
+        model=GEMINI_MODEL,
         contents=prompt,
         config={"temperature": 0.1, "response_mime_type": "application/json"},
     )
@@ -146,14 +161,50 @@ def _call_llm(prompt: str) -> str:
 
     usage = response.usage_metadata
     logger.info(
-        "gemini_call model=%s latency_ms=%.0f prompt_tokens=%s output_tokens=%s total_tokens=%s",
-        GENERATION_MODEL,
+        "llm_call provider=gemini model=%s latency_ms=%.0f prompt_tokens=%s "
+        "output_tokens=%s total_tokens=%s",
+        GEMINI_MODEL,
         latency_ms,
         getattr(usage, "prompt_token_count", None),
         getattr(usage, "candidates_token_count", None),
         getattr(usage, "total_token_count", None),
     )
     return response.text
+
+
+def _call_groq(prompt: str) -> str:
+    client = _get_groq_client()
+    start = time.monotonic()
+    response = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+    latency_ms = (time.monotonic() - start) * 1000
+
+    usage = response.usage
+    logger.info(
+        "llm_call provider=groq model=%s latency_ms=%.0f prompt_tokens=%s "
+        "output_tokens=%s total_tokens=%s",
+        GROQ_MODEL,
+        latency_ms,
+        getattr(usage, "prompt_tokens", None),
+        getattr(usage, "completion_tokens", None),
+        getattr(usage, "total_tokens", None),
+    )
+    return response.choices[0].message.content
+
+
+def _providers() -> list[tuple[str, callable]]:
+    """Ordered list of (provider_name, call_fn) to try. Gemini gets two
+    attempts (covers a transient blip or a one-off malformed response); Groq
+    is only included - also with two attempts - if a key is configured, so
+    the app degrades gracefully to Gemini-only behavior without one."""
+    attempts = [("gemini", _call_gemini), ("gemini", _call_gemini)]
+    if GROQ_API_KEY:
+        attempts += [("groq", _call_groq), ("groq", _call_groq)]
+    return attempts
 
 
 def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
@@ -182,16 +233,18 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
     prompt = f"{SYSTEM_PROMPT}\n\nPolicy context:\n{context}\n\nTicket:\n{facts}\n\nJSON decision:"
 
     last_error: Exception | None = None
-    for attempt in range(2):
+    for attempt, (provider_name, call_fn) in enumerate(_providers(), start=1):
         try:
-            raw = _call_llm(prompt)
+            raw = call_fn(prompt)
             parsed = _extract_json(raw)
             decision = LLMDecision.model_validate(parsed)
             _cache_decision(cache, key, decision, retrieved)
             return decision, retrieved
         except Exception as exc:  # noqa: BLE001
             last_error = exc
-            logger.warning("Decision attempt %d failed: %s", attempt + 1, exc)
+            logger.warning(
+                "Decision attempt %d (provider=%s) failed: %s", attempt, provider_name, exc
+            )
 
     # Deliberately not cached: a failure here is usually transient (rate
     # limit, network blip), and caching it would permanently freeze a bad

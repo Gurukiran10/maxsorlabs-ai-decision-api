@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     gemini_api_key: str = Field(alias="GEMINI_API_KEY")
+    # Optional: if set, used as an automatic fallback LLM provider when
+    # Gemini fails (e.g. free-tier quota exhaustion). The app works fine
+    # without it - it just loses the fallback and behaves as it did before.
+    groq_api_key: str = Field(default="", alias="GROQ_API_KEY")
     jwt_secret: str = Field(alias="JWT_SECRET")
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = Field(default=60, alias="JWT_EXPIRE_MINUTES")
@@ -51,6 +55,9 @@ settings = Settings()
 # Re-exported as module-level constants so existing `from src.config import X`
 # call sites don't need to change.
 GEMINI_API_KEY = settings.gemini_api_key
+GROQ_API_KEY = (
+    settings.groq_api_key if settings.groq_api_key != "your-groq-api-key-here" else ""
+)
 JWT_SECRET = settings.jwt_secret
 JWT_ALGORITHM = settings.jwt_algorithm
 JWT_EXPIRE_MINUTES = settings.jwt_expire_minutes
