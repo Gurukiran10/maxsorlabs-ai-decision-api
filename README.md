@@ -91,8 +91,9 @@ This requires a valid `GEMINI_API_KEY` since it calls the real LLM end to end.
 | POST   | `/tickets`       | Submit a ticket, generate an AI decision  |
 | GET    | `/tickets`       | List the authenticated user's tickets     |
 | GET    | `/tickets/{id}`  | Get one ticket + its decision             |
+| GET    | `/health`        | Liveness check (no auth)                  |
 
-All endpoints except `/register` and `/login` require
+All endpoints except `/register`, `/login`, and `/health` require
 `Authorization: Bearer <JWT>`.
 
 ## Design decisions worth knowing about
@@ -123,6 +124,16 @@ All endpoints except `/register` and `/login` require
 - **Same 404 for "not found" and "not yours."** `/tickets/{id}` returns 404
   in both cases so the API never confirms/denies another user's ticket IDs
   to someone who isn't authorized to see them.
+- **Retrieval-confidence safety net.** Before the LLM is even called, the top
+  retrieved chunk's cosine similarity is checked against a threshold (0.62,
+  chosen from empirically measured scores — relevant tickets score ~0.70-0.76
+  against this knowledge base, off-topic ones top out around ~0.55-0.58). If
+  nothing scores above it, the ticket is answered `NEEDS_MORE_INFORMATION`
+  without spending an LLM call. This doesn't rely on the model noticing on
+  its own that it has no grounding for an off-topic ticket.
+- **Config fails fast.** `src/config.py` uses `pydantic-settings` to validate
+  `GEMINI_API_KEY`/`JWT_SECRET` at startup, not on the first request that
+  happens to need them.
 
 ## Project structure
 

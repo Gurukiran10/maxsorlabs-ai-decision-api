@@ -14,6 +14,21 @@ logger = logging.getLogger(__name__)
 
 GENERATION_MODEL = "gemini-3.6-flash"
 
+# Minimum cosine similarity the best-matching policy chunk must clear before
+# the LLM is even consulted. Empirically, genuinely relevant tickets score
+# ~0.70-0.76 against this knowledge base, while off-topic messages top out
+# around ~0.55-0.58 (see DEVELOPMENT.md). This is a cheap, deterministic
+# guardrail against relying on the LLM alone to notice it has no grounding.
+MIN_RETRIEVAL_SCORE = 0.62
+
+UNGROUNDED_DECISION = LLMDecision(
+    action="NEEDS_MORE_INFORMATION",
+    confidence=0.9,
+    reason="The ticket does not appear to relate to any known policy area (returns, "
+    "damaged goods, shipping, cancellations, defects, or wrong item).",
+    sources=[],
+)
+
 SYSTEM_PROMPT = """You are a support-ticket decision assistant for an e-commerce company.
 
 You will be given a customer support ticket (with any structured order details
@@ -101,6 +116,15 @@ def _call_llm(prompt: str) -> str:
 def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
     """Returns (validated decision, retrieved chunks used as context)."""
     retrieved = retrieve(ticket["message"], top_k=5)
+
+    if not retrieved or retrieved[0]["score"] < MIN_RETRIEVAL_SCORE:
+        logger.info(
+            "Top retrieval score %.3f below threshold %.2f; skipping LLM call.",
+            retrieved[0]["score"] if retrieved else -1.0,
+            MIN_RETRIEVAL_SCORE,
+        )
+        return UNGROUNDED_DECISION, retrieved
+
     context = _build_context(retrieved)
     facts = _build_ticket_facts(ticket)
 

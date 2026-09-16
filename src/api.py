@@ -38,6 +38,11 @@ app = FastAPI(title="AI Decision API", version="1.0.0", lifespan=lifespan)
 bearer_scheme = HTTPBearer()
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),

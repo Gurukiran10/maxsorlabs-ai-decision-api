@@ -1,3 +1,12 @@
+import os
+
+# Config validation requires these to be set and non-placeholder; tests never
+# make real Gemini calls (make_decision is stubbed below), so dummy values
+# are fine. Must be set before any `src.*` module is imported, since
+# src.config validates them at import time.
+os.environ.setdefault("GEMINI_API_KEY", "test-dummy-key")
+os.environ.setdefault("JWT_SECRET", "test-dummy-secret")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
