@@ -66,50 +66,62 @@ if "email" not in st.session_state:
 
 
 def login_register_page():
-    st.title("🎫 AI Support Decision Assistant")
-    tab_login, tab_register = st.tabs(["Login", "Register"])
+    _, center, _ = st.columns([1, 1.4, 1])
+    with center:
+        card = st.container(border=True)
+        card.markdown("## 🎫 Support Decision Assistant")
+        card.caption("Policy-grounded AI recommendations for support tickets.")
 
-    with tab_login:
-        with st.form("login_form"):
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_password")
-            submitted = st.form_submit_button("Login", use_container_width=True)
-        if submitted:
-            if not email or not password:
-                st.error("Please enter both email and password.")
-            else:
-                try:
-                    resp = api_post("/login", {"email": email, "password": password})
-                except BackendUnreachable as exc:
-                    st.error(str(exc))
-                else:
-                    if resp.status_code == 200:
-                        st.session_state.token = resp.json()["access_token"]
-                        st.session_state.email = email
-                        st.rerun()
-                    else:
-                        st.error(error_detail(resp, "Login failed"))
+        tab_login, tab_register = card.tabs(["Sign in", "Create account"])
 
-    with tab_register:
-        with st.form("register_form"):
-            email = st.text_input("Email", key="register_email")
-            password = st.text_input(
-                "Password (min 8 characters)", type="password", key="register_password"
-            )
-            submitted = st.form_submit_button("Register", use_container_width=True)
-        if submitted:
-            if not email or len(password) < 8:
-                st.error("Enter a valid email and a password of at least 8 characters.")
-            else:
-                try:
-                    resp = api_post("/register", {"email": email, "password": password})
-                except BackendUnreachable as exc:
-                    st.error(str(exc))
+        with tab_login:
+            with st.form("login_form"):
+                email = st.text_input("Email", key="login_email", placeholder="you@example.com")
+                password = st.text_input("Password", type="password", key="login_password")
+                submitted = st.form_submit_button("Sign in", use_container_width=True)
+            if submitted:
+                if not email or not password:
+                    st.error("Please enter both email and password.")
                 else:
-                    if resp.status_code == 201:
-                        st.success("Account created. Switch to the Login tab to sign in.")
+                    try:
+                        resp = api_post("/login", {"email": email, "password": password})
+                    except BackendUnreachable as exc:
+                        st.error(str(exc))
                     else:
-                        st.error(error_detail(resp, "Registration failed"))
+                        if resp.status_code == 200:
+                            st.session_state.token = resp.json()["access_token"]
+                            st.session_state.email = email
+                            st.rerun()
+                        else:
+                            st.error(error_detail(resp, "Login failed"))
+
+        with tab_register:
+            with st.form("register_form"):
+                email = st.text_input(
+                    "Email", key="register_email", placeholder="you@example.com"
+                )
+                password = st.text_input(
+                    "Password (min 8 characters)", type="password", key="register_password"
+                )
+                confirm_password = st.text_input(
+                    "Confirm password", type="password", key="register_confirm_password"
+                )
+                submitted = st.form_submit_button("Create account", use_container_width=True)
+            if submitted:
+                if not email or len(password) < 8:
+                    st.error("Enter a valid email and a password of at least 8 characters.")
+                elif password != confirm_password:
+                    st.error("Passwords don't match.")
+                else:
+                    try:
+                        resp = api_post("/register", {"email": email, "password": password})
+                    except BackendUnreachable as exc:
+                        st.error(str(exc))
+                    else:
+                        if resp.status_code == 201:
+                            st.success("Account created. Switch to 'Sign in' to log in.")
+                        else:
+                            st.error(error_detail(resp, "Registration failed"))
 
 
 def render_decision(decision: dict | None):
@@ -143,23 +155,39 @@ def render_decision(decision: dict | None):
 
 def new_decision_page():
     st.header("Submit a Support Ticket")
+    st.caption(
+        "Just describe the issue in your own words. Add order details below only if you "
+        "have them — the policies key off order value, delivery timing, and product type, "
+        "so filling these in helps the AI decide with fewer follow-up questions."
+    )
     with st.form("ticket_form"):
         message = st.text_area(
             "Describe the issue",
             height=100,
             placeholder="e.g. My order arrived damaged, the box was crushed",
         )
-        col1, col2 = st.columns(2)
-        with col1:
-            order_value = st.number_input("Order value (INR)", min_value=0.0, step=100.0, value=0.0)
-            days_since_delivery = st.text_input("Days since delivery (leave blank if not delivered)")
-            product_type = st.selectbox("Product type", ["", "food", "non_food", "mixed", "unknown"])
-        with col2:
-            days_since_dispatch = st.text_input("Days since dispatch (leave blank if not dispatched)")
-            opened_status = st.selectbox("Opened status", ["", "opened", "unopened", "unknown"])
-            order_status = st.selectbox(
-                "Order status", ["", "processing", "dispatched", "delivered", "unknown"]
-            )
+
+        with st.expander("📋 Order details (optional — improves accuracy)"):
+            col1, col2 = st.columns(2)
+            with col1:
+                order_value = st.number_input(
+                    "Order value (INR)", min_value=0.0, step=100.0, value=0.0
+                )
+                days_since_delivery = st.text_input(
+                    "Days since delivery (leave blank if not delivered)"
+                )
+                product_type = st.selectbox(
+                    "Product type", ["", "food", "non_food", "mixed", "unknown"]
+                )
+            with col2:
+                days_since_dispatch = st.text_input(
+                    "Days since dispatch (leave blank if not dispatched)"
+                )
+                opened_status = st.selectbox("Opened status", ["", "opened", "unopened", "unknown"])
+                order_status = st.selectbox(
+                    "Order status", ["", "processing", "dispatched", "delivered", "unknown"]
+                )
+
         submitted = st.form_submit_button("Get AI Decision", use_container_width=True)
 
     if not submitted:
