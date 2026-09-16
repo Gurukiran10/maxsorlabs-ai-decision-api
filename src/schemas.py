@@ -93,6 +93,7 @@ class DecisionResponse(BaseModel):
     reason: str
     confidence: float
     sources: list[str]
+    provider: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -136,9 +137,16 @@ class TicketListItem(BaseModel):
 
 
 class LLMDecision(BaseModel):
-    """Schema the LLM's raw JSON output must satisfy before it is trusted."""
+    """Schema the LLM's raw JSON output must satisfy before it is trusted.
+
+    `provider` is not part of the LLM's own output - it's set by
+    src/decision.py afterward, to record which path actually produced this
+    decision (gemini/groq/cache/retrieval_gate/fallback). Surfaced to the
+    frontend so a Groq fallback or cache hit is visible, not silent.
+    """
 
     action: ActionEnum
     confidence: float = Field(ge=0.0, le=1.0)
     reason: str = Field(min_length=1, max_length=1000)
     sources: list[str] = Field(default_factory=list)
+    provider: Optional[str] = None

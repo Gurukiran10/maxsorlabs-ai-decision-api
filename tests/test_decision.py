@@ -145,8 +145,9 @@ def test_markdown_fenced_json_is_parsed(mock_get_client, mock_retrieve):
 @patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
 @patch.object(decision_module, "_get_client")
 def test_identical_ticket_is_served_from_cache(mock_get_client, mock_retrieve):
-    """Submitting the exact same ticket twice should only call the LLM once,
-    and both calls should return the identical decision."""
+    """Submitting the exact same ticket twice should only call the LLM once;
+    the second call should carry provider="cache" (everything else about
+    the decision - action, confidence, reason, sources - stays identical)."""
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = _fake_response(
         '{"action": "APPROVE_RETURN", "confidence": 0.88, '
@@ -158,7 +159,11 @@ def test_identical_ticket_is_served_from_cache(mock_get_client, mock_retrieve):
     first_decision, _ = decision_module.make_decision(SAMPLE_TICKET)
     second_decision, _ = decision_module.make_decision(SAMPLE_TICKET)
 
-    assert first_decision == second_decision
+    assert first_decision.provider == "gemini"
+    assert second_decision.provider == "cache"
+    assert first_decision.model_dump(exclude={"provider"}) == second_decision.model_dump(
+        exclude={"provider"}
+    )
     mock_client.models.generate_content.assert_called_once()
 
 

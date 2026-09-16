@@ -201,6 +201,19 @@ All endpoints except `/register`, `/login`, and `/health` require
   `generate_content` call logs latency and prompt/output/total token counts,
   which is standard LLM-ops practice for a system whose per-request cost
   isn't fixed.
+- **The frontend shows which provider actually answered.** Every decision
+  carries a `provider` value (`gemini` / `groq` / `cache` / `retrieval_gate`
+  / `fallback`), persisted on the `Decision` row and rendered as a badge in
+  the UI. This makes the multi-provider fallback and the decision cache
+  *visible* — during a demo you can watch a ticket get served by Gemini,
+  then submit the same one again and watch it switch to "⚡ Cache" — instead
+  of an invisible implementation detail.
+- **No formal migrations, but schema drift is handled.** `src/database.py`
+  adds any column that's on the SQLAlchemy model but missing from the
+  actual SQLite file at startup (`_add_missing_columns`), since
+  `create_all()` alone only creates missing tables, never alters existing
+  ones. Reasonable at this scope; a larger project would use Alembic
+  instead.
 
 ## Project structure
 

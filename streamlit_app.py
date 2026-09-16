@@ -8,17 +8,55 @@ load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 
-st.set_page_config(page_title="AI Support Decision Assistant", page_icon="🎫")
+st.set_page_config(page_title="AI Support Decision Assistant", page_icon="🎫", layout="wide")
+
+PROVIDER_LABELS = {
+    "gemini": "🟢 Gemini",
+    "groq": "🟡 Groq (fallback)",
+    "cache": "⚡ Cache (instant, no LLM call)",
+    "retrieval_gate": "🔎 Rule-based gate (off-topic, no LLM call)",
+    "fallback": "🔴 Fallback (all providers unavailable)",
+}
+
+
+class BackendUnreachable(Exception):
+    pass
+
+
+def _request(method: str, path: str, **kwargs) -> requests.Response:
+    try:
+        return requests.request(method, f"{API_BASE_URL}{path}", timeout=30, **kwargs)
+    except requests.exceptions.ConnectionError as exc:
+        raise BackendUnreachable(
+            f"Can't reach the backend at {API_BASE_URL}. Is `uvicorn src.api:app` running?"
+        ) from exc
+    except requests.exceptions.Timeout as exc:
+        raise BackendUnreachable("The backend took too long to respond (timed out).") from exc
 
 
 def api_post(path: str, json_body: dict, auth: bool = False) -> requests.Response:
     headers = {"Authorization": f"Bearer {st.session_state.token}"} if auth else {}
-    return requests.post(f"{API_BASE_URL}{path}", json=json_body, headers=headers, timeout=30)
+    return _request("POST", path, json=json_body, headers=headers)
 
 
 def api_get(path: str) -> requests.Response:
     headers = {"Authorization": f"Bearer {st.session_state.token}"}
-    return requests.get(f"{API_BASE_URL}{path}", headers=headers, timeout=30)
+    return _request("GET", path, headers=headers)
+
+
+def error_detail(resp: requests.Response, fallback: str) -> str:
+    try:
+        return resp.json().get("detail", fallback)
+    except ValueError:
+        return fallback
+
+
+def backend_status() -> bool:
+    try:
+        resp = _request("GET", "/health")
+        return resp.status_code == 200
+    except BackendUnreachable:
+        return False
 
 
 if "token" not in st.session_state:
@@ -35,15 +73,22 @@ def login_register_page():
         with st.form("login_form"):
             email = st.text_input("Email", key="login_email")
             password = st.text_input("Password", type="password", key="login_password")
-            submitted = st.form_submit_button("Login")
+            submitted = st.form_submit_button("Login", use_container_width=True)
         if submitted:
-            resp = api_post("/login", {"email": email, "password": password})
-            if resp.status_code == 200:
-                st.session_state.token = resp.json()["access_token"]
-                st.session_state.email = email
-                st.rerun()
+            if not email or not password:
+                st.error("Please enter both email and password.")
             else:
-                st.error(resp.json().get("detail", "Login failed"))
+                try:
+                    resp = api_post("/login", {"email": email, "password": password})
+                except BackendUnreachable as exc:
+                    st.error(str(exc))
+                else:
+                    if resp.status_code == 200:
+                        st.session_state.token = resp.json()["access_token"]
+                        st.session_state.email = email
+                        st.rerun()
+                    else:
+                        st.error(error_detail(resp, "Login failed"))
 
     with tab_register:
         with st.form("register_form"):
@@ -51,19 +96,27 @@ def login_register_page():
             password = st.text_input(
                 "Password (min 8 characters)", type="password", key="register_password"
             )
-            submitted = st.form_submit_button("Register")
+            submitted = st.form_submit_button("Register", use_container_width=True)
         if submitted:
-            resp = api_post("/register", {"email": email, "password": password})
-            if resp.status_code == 201:
-                st.success("Account created. Please log in.")
+            if not email or len(password) < 8:
+                st.error("Enter a valid email and a password of at least 8 characters.")
             else:
-                st.error(resp.json().get("detail", "Registration failed"))
+                try:
+                    resp = api_post("/register", {"email": email, "password": password})
+                except BackendUnreachable as exc:
+                    st.error(str(exc))
+                else:
+                    if resp.status_code == 201:
+                        st.success("Account created. Switch to the Login tab to sign in.")
+                    else:
+                        st.error(error_detail(resp, "Registration failed"))
 
 
 def render_decision(decision: dict | None):
     if decision is None:
         st.warning("No decision recorded for this ticket.")
         return
+
     action = decision["action"]
     if action == "NEEDS_MORE_INFORMATION":
         st.warning(f"**Action:** {action}")
@@ -71,7 +124,18 @@ def render_decision(decision: dict | None):
         st.error(f"**Action:** {action}")
     else:
         st.success(f"**Action:** {action}")
-    st.metric("Confidence", f"{decision['confidence']:.0%}")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        confidence = decision["confidence"]
+        st.metric("Confidence", f"{confidence:.0%}")
+        st.progress(min(max(confidence, 0.0), 1.0))
+    with col2:
+        provider = decision.get("provider")
+        if provider:
+            st.caption("Answered by")
+            st.write(PROVIDER_LABELS.get(provider, provider))
+
     st.write(f"**Reasoning:** {decision['reason']}")
     if decision["sources"]:
         st.caption("Sources: " + ", ".join(decision["sources"]))
@@ -80,7 +144,11 @@ def render_decision(decision: dict | None):
 def new_decision_page():
     st.header("Submit a Support Ticket")
     with st.form("ticket_form"):
-        message = st.text_area("Describe the issue", height=100)
+        message = st.text_area(
+            "Describe the issue",
+            height=100,
+            placeholder="e.g. My order arrived damaged, the box was crushed",
+        )
         col1, col2 = st.columns(2)
         with col1:
             order_value = st.number_input("Order value (INR)", min_value=0.0, step=100.0, value=0.0)
@@ -92,59 +160,103 @@ def new_decision_page():
             order_status = st.selectbox(
                 "Order status", ["", "processing", "dispatched", "delivered", "unknown"]
             )
-        submitted = st.form_submit_button("Get AI Decision")
+        submitted = st.form_submit_button("Get AI Decision", use_container_width=True)
 
-    if submitted:
-        if not message.strip():
-            st.error("Please describe the issue.")
+    if not submitted:
+        return
+
+    if not message.strip():
+        st.error("Please describe the issue.")
+        return
+
+    for label, value in (
+        ("Days since delivery", days_since_delivery),
+        ("Days since dispatch", days_since_dispatch),
+    ):
+        if value.strip() and not value.strip().lstrip("-").isdigit():
+            st.error(f"{label} must be a whole number, or left blank.")
             return
-        payload = {
-            "message": message,
-            "order_value_inr": order_value or None,
-            "days_since_delivery": int(days_since_delivery) if days_since_delivery.strip() else None,
-            "days_since_dispatch": int(days_since_dispatch) if days_since_dispatch.strip() else None,
-            "product_type": product_type or None,
-            "opened_status": opened_status or None,
-            "order_status": order_status or None,
-        }
+
+    payload = {
+        "message": message,
+        "order_value_inr": order_value or None,
+        "days_since_delivery": int(days_since_delivery) if days_since_delivery.strip() else None,
+        "days_since_dispatch": int(days_since_dispatch) if days_since_dispatch.strip() else None,
+        "product_type": product_type or None,
+        "opened_status": opened_status or None,
+        "order_status": order_status or None,
+    }
+    try:
         with st.spinner("Retrieving policy context and consulting the AI..."):
             resp = api_post("/tickets", payload, auth=True)
-        if resp.status_code == 201:
-            st.success("Decision generated.")
-            render_decision(resp.json().get("decision"))
-        else:
-            st.error(resp.json().get("detail", "Failed to create ticket"))
+    except BackendUnreachable as exc:
+        st.error(str(exc))
+        return
+
+    if resp.status_code == 201:
+        st.success("Decision generated.")
+        render_decision(resp.json().get("decision"))
+    elif resp.status_code == 429:
+        st.warning(error_detail(resp, "Too many requests — please wait a moment and try again."))
+    elif resp.status_code == 502:
+        st.error(error_detail(resp, "The AI decision service failed. Please try again."))
+    else:
+        st.error(error_detail(resp, "Failed to create ticket"))
+
+
+ACTION_FILTER_ALL = "All actions"
 
 
 def history_page():
     st.header("Your Ticket History")
-    resp = api_get("/tickets")
-    if resp.status_code != 200:
-        st.error("Failed to load history.")
+    try:
+        resp = api_get("/tickets")
+    except BackendUnreachable as exc:
+        st.error(str(exc))
         return
+
+    if resp.status_code != 200:
+        st.error(error_detail(resp, "Failed to load history."))
+        return
+
     tickets = resp.json()
     if not tickets:
         st.info("No tickets yet. Submit one under 'New Decision'.")
         return
 
+    actions = sorted({t["action"] for t in tickets if t.get("action")})
+    selected_action = st.selectbox("Filter by action", [ACTION_FILTER_ALL] + actions)
+    if selected_action != ACTION_FILTER_ALL:
+        tickets = [t for t in tickets if t.get("action") == selected_action]
+
+    st.caption(f"{len(tickets)} ticket(s)")
+
     for t in tickets:
         label = f"#{t['id']} · {t['message'][:60]} · {t.get('action') or 'pending'}"
         with st.expander(label):
-            detail_resp = api_get(f"/tickets/{t['id']}")
-            if detail_resp.status_code == 200:
-                detail = detail_resp.json()
-                st.write(f"**Message:** {detail['message']}")
-                st.write(
-                    f"Order value: {detail['order_value_inr']} | "
-                    f"Days since delivery: {detail['days_since_delivery']} | "
-                    f"Days since dispatch: {detail['days_since_dispatch']}"
-                )
-                st.write(
-                    f"Product type: {detail['product_type']} | "
-                    f"Opened: {detail['opened_status']} | "
-                    f"Order status: {detail['order_status']}"
-                )
-                render_decision(detail.get("decision"))
+            try:
+                detail_resp = api_get(f"/tickets/{t['id']}")
+            except BackendUnreachable as exc:
+                st.error(str(exc))
+                continue
+
+            if detail_resp.status_code != 200:
+                st.error(error_detail(detail_resp, "Failed to load this ticket."))
+                continue
+
+            detail = detail_resp.json()
+            st.write(f"**Message:** {detail['message']}")
+            st.write(
+                f"Order value: {detail['order_value_inr']} | "
+                f"Days since delivery: {detail['days_since_delivery']} | "
+                f"Days since dispatch: {detail['days_since_dispatch']}"
+            )
+            st.write(
+                f"Product type: {detail['product_type']} | "
+                f"Opened: {detail['opened_status']} | "
+                f"Order status: {detail['order_status']}"
+            )
+            render_decision(detail.get("decision"))
 
 
 def main():
@@ -152,13 +264,22 @@ def main():
         login_register_page()
         return
 
-    st.sidebar.write(f"Logged in as **{st.session_state.email}**")
-    if st.sidebar.button("Log out"):
-        st.session_state.token = None
-        st.session_state.email = None
-        st.rerun()
+    with st.sidebar:
+        st.write(f"Logged in as **{st.session_state.email}**")
+        if st.button("Log out", use_container_width=True):
+            st.session_state.token = None
+            st.session_state.email = None
+            st.rerun()
 
-    page = st.sidebar.radio("Navigate", ["New Decision", "History"])
+        st.divider()
+        page = st.radio("Navigate", ["New Decision", "History"])
+
+        st.divider()
+        if backend_status():
+            st.caption("🟢 Backend online")
+        else:
+            st.caption("🔴 Backend unreachable")
+
     if page == "New Decision":
         new_decision_page()
     else:

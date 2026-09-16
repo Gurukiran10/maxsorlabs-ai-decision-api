@@ -147,6 +147,7 @@ def create_ticket(
         reason=decision_result.reason,
         confidence=decision_result.confidence,
         sources=json.dumps(decision_result.sources),
+        provider=decision_result.provider,
     )
     db.add(decision)
     db.commit()

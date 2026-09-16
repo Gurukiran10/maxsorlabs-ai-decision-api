@@ -214,7 +214,9 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
     cached = cache.get(key)
     if cached is not None:
         logger.info("Decision cache hit for ticket hash %s", key[:12])
-        return LLMDecision.model_validate(cached["decision"]), cached["retrieved"]
+        decision = LLMDecision.model_validate(cached["decision"])
+        decision.provider = "cache"
+        return decision, cached["retrieved"]
 
     retrieved = retrieve(ticket["message"], top_k=5)
 
@@ -224,8 +226,9 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
             retrieved[0]["score"] if retrieved else -1.0,
             MIN_RETRIEVAL_SCORE,
         )
-        _cache_decision(cache, key, UNGROUNDED_DECISION, retrieved)
-        return UNGROUNDED_DECISION, retrieved
+        decision = UNGROUNDED_DECISION.model_copy(update={"provider": "retrieval_gate"})
+        _cache_decision(cache, key, decision, retrieved)
+        return decision, retrieved
 
     context = _build_context(retrieved)
     facts = _build_ticket_facts(ticket)
@@ -238,6 +241,7 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
             raw = call_fn(prompt)
             parsed = _extract_json(raw)
             decision = LLMDecision.model_validate(parsed)
+            decision.provider = provider_name
             _cache_decision(cache, key, decision, retrieved)
             return decision, retrieved
         except Exception as exc:  # noqa: BLE001
@@ -251,7 +255,8 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
     # answer for a ticket that could be answered correctly once the
     # underlying issue clears.
     logger.error("Falling back to NEEDS_MORE_INFORMATION after LLM failures: %s", last_error)
-    return FALLBACK_DECISION, retrieved
+    decision = FALLBACK_DECISION.model_copy(update={"provider": "fallback"})
+    return decision, retrieved
 
 
 def _cache_decision(

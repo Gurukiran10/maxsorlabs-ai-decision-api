@@ -9,6 +9,8 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Session, relationship, sessionmaker
 
@@ -70,6 +72,11 @@ class Decision(Base):
     reason = Column(Text, nullable=False)
     confidence = Column(Float, nullable=False)
     sources = Column(Text, nullable=False)  # JSON-encoded list[str]
+    # Which path actually produced this decision: gemini | groq | cache |
+    # retrieval_gate | fallback. Not in the assignment's minimum schema, but
+    # cheap to store and useful for demonstrating/debugging the multi-
+    # provider fallback chain (see src/decision.py).
+    provider = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
     ticket = relationship("Ticket", back_populates="decision")
@@ -81,8 +88,29 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _add_missing_columns() -> None:
+    """Bare-bones auto-migration: create_all() only creates missing tables,
+    it never alters existing ones. A real project at this SQLite/no-Alembic
+    scope would still eventually need *some* way to evolve a schema that's
+    already been created on disk, so this adds any column that's on the
+    model but missing from the actual table - a good-enough substitute for
+    a full migration tool at this project's size, not a replacement for one
+    at a larger scale.
+    """
+    inspector = inspect(engine)
+    if "decisions" not in inspector.get_table_names():
+        return
+    existing_columns = {col["name"] for col in inspector.get_columns("decisions")}
+    with engine.begin() as conn:
+        for column in Decision.__table__.columns:
+            if column.name not in existing_columns:
+                col_type = column.type.compile(dialect=engine.dialect)
+                conn.execute(text(f"ALTER TABLE decisions ADD COLUMN {column.name} {col_type}"))
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _add_missing_columns()
 
 
 def get_db():
