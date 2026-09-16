@@ -231,7 +231,16 @@ def new_decision_page():
             col1, col2 = st.columns(2)
             with col1:
                 order_value = st.number_input(
-                    "Order value (INR)", min_value=0.0, step=100.0, value=0.0
+                    "⭐ Order value (INR) — strongly recommended",
+                    min_value=0.0,
+                    step=100.0,
+                    value=0.0,
+                    help=(
+                        "Most policies key off ₹2,000/₹3,000 thresholds "
+                        "(e.g. damaged-goods photo requirements). Leaving this "
+                        "blank is often enough by itself to trigger "
+                        "'More Information Needed'."
+                    ),
                 )
                 days_since_delivery = st.text_input(
                     "Days since delivery (leave blank if not delivered)"
