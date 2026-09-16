@@ -15,7 +15,7 @@ from google import genai
 
 from src.config import GEMINI_API_KEY, KNOWLEDGE_BASE_DIR, RETRIEVAL_CACHE_DIR
 
-EMBEDDING_MODEL = "text-embedding-004"
+EMBEDDING_MODEL = "gemini-embedding-001"
 
 _client: genai.Client | None = None
 

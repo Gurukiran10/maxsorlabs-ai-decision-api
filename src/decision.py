@@ -12,7 +12,7 @@ from src.schemas import LLMDecision
 
 logger = logging.getLogger(__name__)
 
-GENERATION_MODEL = "gemini-2.0-flash"
+GENERATION_MODEL = "gemini-3.6-flash"
 
 SYSTEM_PROMPT = """You are a support-ticket decision assistant for an e-commerce company.
 
