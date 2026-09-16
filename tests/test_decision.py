@@ -8,7 +8,18 @@ os.environ.setdefault("JWT_SECRET", "test-dummy-secret")
 
 from unittest.mock import MagicMock, patch  # noqa: E402
 
+import pytest  # noqa: E402
+
 from src import decision as decision_module  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_decision_cache(tmp_path, monkeypatch):
+    """Point the on-disk decision cache at a throwaway path so tests don't
+    read/write the real retrieval_cache/decision_cache.json, and don't leak
+    cache hits between tests that reuse the same ticket fixtures."""
+    monkeypatch.setattr(decision_module, "DECISION_CACHE_PATH", tmp_path / "decision_cache.json")
+
 
 SAMPLE_TICKET = {
     "message": "My order arrived damaged.",
@@ -123,3 +134,58 @@ def test_markdown_fenced_json_is_parsed(mock_get_client, mock_retrieve):
     decision, _ = decision_module.make_decision(SAMPLE_TICKET)
 
     assert decision.action.value == "REQUEST_PHOTOS"
+
+
+@patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
+@patch.object(decision_module, "_get_client")
+def test_identical_ticket_is_served_from_cache(mock_get_client, mock_retrieve):
+    """Submitting the exact same ticket twice should only call the LLM once,
+    and both calls should return the identical decision."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = _fake_response(
+        '{"action": "APPROVE_RETURN", "confidence": 0.88, '
+        '"reason": "Unopened non-food item within the return window.", '
+        '"sources": ["returns.md"]}'
+    )
+    mock_get_client.return_value = mock_client
+
+    first_decision, _ = decision_module.make_decision(SAMPLE_TICKET)
+    second_decision, _ = decision_module.make_decision(SAMPLE_TICKET)
+
+    assert first_decision == second_decision
+    mock_client.models.generate_content.assert_called_once()
+
+
+@patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
+@patch.object(decision_module, "_get_client")
+def test_different_ticket_is_not_served_from_cache(mock_get_client, mock_retrieve):
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = _fake_response(
+        '{"action": "APPROVE_RETURN", "confidence": 0.88, "reason": "x", "sources": []}'
+    )
+    mock_get_client.return_value = mock_client
+
+    decision_module.make_decision(SAMPLE_TICKET)
+    decision_module.make_decision({**SAMPLE_TICKET, "message": "A completely different issue."})
+
+    assert mock_client.models.generate_content.call_count == 2
+
+
+@patch.object(decision_module, "retrieve", return_value=RELEVANT_CHUNKS)
+@patch.object(decision_module, "_get_client")
+def test_llm_failure_is_not_cached(mock_get_client, mock_retrieve):
+    """A transient failure (fallback) must not be cached, so the same ticket
+    can succeed on a later attempt once the underlying issue clears."""
+    mock_client = MagicMock()
+    mock_client.models.generate_content.return_value = _fake_response("not json")
+    mock_get_client.return_value = mock_client
+
+    decision_module.make_decision(SAMPLE_TICKET)  # falls back, 2 attempts
+
+    mock_client.models.generate_content.return_value = _fake_response(
+        '{"action": "APPROVE_RETURN", "confidence": 0.88, "reason": "x", "sources": []}'
+    )
+    second_decision, _ = decision_module.make_decision(SAMPLE_TICKET)
+
+    assert second_decision.action.value == "APPROVE_RETURN"
+    assert mock_client.models.generate_content.call_count == 3  # 2 failed + 1 succeeded

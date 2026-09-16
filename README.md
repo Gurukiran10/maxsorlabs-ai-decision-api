@@ -124,6 +124,16 @@ All endpoints except `/register`, `/login`, and `/health` require
 - **Same 404 for "not found" and "not yours."** `/tickets/{id}` returns 404
   in both cases so the API never confirms/denies another user's ticket IDs
   to someone who isn't authorized to see them.
+- **Decisions are cached by content hash.** Identical tickets (same message +
+  same structured facts) always get the same answer, served from
+  `retrieval_cache/decision_cache.json` instead of paying for and re-rolling
+  a fresh LLM call every time. The supplied `data/tickets.csv` genuinely
+  contains repeated identical tickets from different customers, so this has
+  real value, not just demo value. A failed/fallback decision is deliberately
+  *not* cached, so a transient failure (rate limit, network blip) doesn't
+  permanently freeze a bad answer for a ticket that could succeed on retry.
+  No TTL/invalidation — reasonable at this scope; a real system would put
+  this behind a proper cache with expiry tied to policy-doc changes.
 - **Retrieval-confidence safety net.** Before the LLM is even called, the top
   retrieved chunk's cosine similarity is checked against a threshold (0.62,
   chosen from empirically measured scores — relevant tickets score ~0.70-0.76

@@ -1,16 +1,46 @@
 """LLM-backed decision step: retrieve policy context, ask Gemini for a
 structured decision, validate it, and fall back safely on failure."""
 
+import hashlib
 import json
 import logging
 
 from google import genai
 
-from src.config import GEMINI_API_KEY
+from src.config import GEMINI_API_KEY, RETRIEVAL_CACHE_DIR
 from src.retrieval import retrieve
 from src.schemas import LLMDecision
 
 logger = logging.getLogger(__name__)
+
+# Identical tickets (same message + same structured facts) always deserve the
+# same answer, and the sample data set genuinely contains repeated tickets
+# (e.g. many customers submitting the exact same change-of-mind return
+# message). Caching by content hash makes those repeats free, instant, and
+# deterministic, instead of paying for and re-rolling a fresh LLM call every
+# time. This is a simple on-disk JSON cache with no TTL/invalidation, which
+# is a reasonable scope for a small assignment; a real system would put this
+# behind a proper cache (Redis, etc.) with expiry tied to policy-doc changes.
+DECISION_CACHE_PATH = RETRIEVAL_CACHE_DIR / "decision_cache.json"
+
+
+def _cache_key(ticket: dict) -> str:
+    canonical = json.dumps(ticket, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _load_decision_cache() -> dict:
+    if not DECISION_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(DECISION_CACHE_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_decision_cache(cache: dict) -> None:
+    DECISION_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DECISION_CACHE_PATH.write_text(json.dumps(cache, indent=2), encoding="utf-8")
 
 GENERATION_MODEL = "gemini-3.6-flash"
 
@@ -115,6 +145,13 @@ def _call_llm(prompt: str) -> str:
 
 def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
     """Returns (validated decision, retrieved chunks used as context)."""
+    key = _cache_key(ticket)
+    cache = _load_decision_cache()
+    cached = cache.get(key)
+    if cached is not None:
+        logger.info("Decision cache hit for ticket hash %s", key[:12])
+        return LLMDecision.model_validate(cached["decision"]), cached["retrieved"]
+
     retrieved = retrieve(ticket["message"], top_k=5)
 
     if not retrieved or retrieved[0]["score"] < MIN_RETRIEVAL_SCORE:
@@ -123,6 +160,7 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
             retrieved[0]["score"] if retrieved else -1.0,
             MIN_RETRIEVAL_SCORE,
         )
+        _cache_decision(cache, key, UNGROUNDED_DECISION, retrieved)
         return UNGROUNDED_DECISION, retrieved
 
     context = _build_context(retrieved)
@@ -136,10 +174,22 @@ def make_decision(ticket: dict) -> tuple[LLMDecision, list[dict]]:
             raw = _call_llm(prompt)
             parsed = _extract_json(raw)
             decision = LLMDecision.model_validate(parsed)
+            _cache_decision(cache, key, decision, retrieved)
             return decision, retrieved
         except Exception as exc:  # noqa: BLE001
             last_error = exc
             logger.warning("Decision attempt %d failed: %s", attempt + 1, exc)
 
+    # Deliberately not cached: a failure here is usually transient (rate
+    # limit, network blip), and caching it would permanently freeze a bad
+    # answer for a ticket that could be answered correctly once the
+    # underlying issue clears.
     logger.error("Falling back to NEEDS_MORE_INFORMATION after LLM failures: %s", last_error)
     return FALLBACK_DECISION, retrieved
+
+
+def _cache_decision(
+    cache: dict, key: str, decision: LLMDecision, retrieved: list[dict]
+) -> None:
+    cache[key] = {"decision": decision.model_dump(mode="json"), "retrieved": retrieved}
+    _save_decision_cache(cache)
