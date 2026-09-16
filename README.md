@@ -1,9 +1,17 @@
 # AI Support Ticket Decision Assistant
 
+[![Tests](https://github.com/Gurukiran10/maxsorlabs-ai-decision-api/actions/workflows/tests.yml/badge.svg)](https://github.com/Gurukiran10/maxsorlabs-ai-decision-api/actions/workflows/tests.yml)
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue)
+
 A small end-to-end app: a user registers/logs in (JWT), submits a support
 ticket, and receives a structured, policy-grounded AI decision (action,
 confidence, reasoning, sources). Built with FastAPI, SQLite, a local RAG
-pipeline over the supplied policy documents, and Gemini.
+pipeline over the supplied policy documents, and Gemini (with an automatic
+Groq fallback).
+
+**Quick facts:** 36 automated tests, all passing in CI · 100% (5/5) on the
+supplied sample test cases · dual LLM providers with automatic failover ·
+decisions cached by content hash · per-user rate limiting.
 
 ## Architecture
 
