@@ -167,6 +167,13 @@ All endpoints except `/register`, `/login`, and `/health` require
 - **Config fails fast.** `src/config.py` uses `pydantic-settings` to validate
   `GEMINI_API_KEY`/`JWT_SECRET` at startup, not on the first request that
   happens to need them.
+- **Password policy: 8-72 characters, at least one letter and one number.**
+  Hashed with bcrypt via passlib (`src/auth.py`). The 72-character upper
+  bound isn't arbitrary — bcrypt only uses a password's first 72 bytes and
+  silently ignores the rest, so without this cap two different long
+  passwords sharing the same first 72 bytes would hash identically. The
+  rule is enforced in `src/schemas.py` (the actual source of truth) and
+  mirrored client-side in `streamlit_app.py` for instant feedback.
 - **Optional Groq fallback provider.** Gemini gets two attempts; if both
   fail and `GROQ_API_KEY` is set, two attempts go to Groq (`openai/gpt-oss-120b`)
   before finally giving up and returning `NEEDS_MORE_INFORMATION`. Groq is

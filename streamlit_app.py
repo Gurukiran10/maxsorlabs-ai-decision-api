@@ -1,4 +1,5 @@
 import os
+import re
 
 import requests
 import streamlit as st
@@ -7,6 +8,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+
+
+def validate_password(password: str) -> str | None:
+    """Mirrors src/schemas.py's UserRegister.password_complexity validator,
+    so the same rule is enforced client-side (instant feedback) and
+    server-side (the actual source of truth)."""
+    if len(password) < 8:
+        return "Password must be at least 8 characters."
+    if len(password) > 72:
+        return "Password must be 72 characters or fewer."
+    if not re.search(r"[A-Za-z]", password):
+        return "Password must contain at least one letter."
+    if not re.search(r"\d", password):
+        return "Password must contain at least one number."
+    return None
 
 st.set_page_config(page_title="AI Support Decision Assistant", page_icon="🎫", layout="wide")
 
@@ -137,15 +153,20 @@ def login_register_page():
                     "Email", key="register_email", placeholder="you@example.com"
                 )
                 password = st.text_input(
-                    "Password (min 8 characters)", type="password", key="register_password"
+                    "Password (min 8 chars, at least one letter and one number)",
+                    type="password",
+                    key="register_password",
                 )
                 confirm_password = st.text_input(
                     "Confirm password", type="password", key="register_confirm_password"
                 )
                 submitted = st.form_submit_button("Create account", use_container_width=True)
             if submitted:
-                if not email or len(password) < 8:
-                    st.error("Enter a valid email and a password of at least 8 characters.")
+                password_error = validate_password(password)
+                if not email:
+                    st.error("Enter a valid email address.")
+                elif password_error:
+                    st.error(password_error)
                 elif password != confirm_password:
                     st.error("Passwords don't match.")
                 else:

@@ -44,3 +44,36 @@ def test_me_returns_current_user(client):
 def test_invalid_token_rejected(client):
     resp = client.get("/me", headers={"Authorization": "Bearer not-a-real-token"})
     assert resp.status_code == 401
+
+
+def test_register_rejects_password_with_no_number(client):
+    resp = client.post(
+        "/register", json={"email": "alice@example.com", "password": "alletters"}
+    )
+    assert resp.status_code == 422
+
+
+def test_register_rejects_password_with_no_letter(client):
+    resp = client.post(
+        "/register", json={"email": "alice@example.com", "password": "12345678"}
+    )
+    assert resp.status_code == 422
+
+
+def test_register_rejects_too_short_password(client):
+    resp = client.post("/register", json={"email": "alice@example.com", "password": "ab1"})
+    assert resp.status_code == 422
+
+
+def test_register_rejects_password_over_bcrypt_limit(client):
+    resp = client.post(
+        "/register", json={"email": "alice@example.com", "password": "a1" * 40}
+    )
+    assert resp.status_code == 422
+
+
+def test_register_accepts_valid_password(client):
+    resp = client.post(
+        "/register", json={"email": "alice@example.com", "password": "Valid1Pass"}
+    )
+    assert resp.status_code == 201

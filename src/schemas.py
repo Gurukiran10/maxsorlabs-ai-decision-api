@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -48,7 +49,21 @@ class ActionEnum(str, Enum):
 
 class UserRegister(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8)
+    # max_length=72 isn't arbitrary: bcrypt (see src/auth.py) only uses the
+    # first 72 bytes of a password and silently ignores the rest, so two
+    # different long passwords sharing the same first 72 bytes would hash
+    # identically. Capping input length here surfaces that as a validation
+    # error instead of a silent footgun.
+    password: str = Field(min_length=8, max_length=72)
+
+    @field_validator("password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if not re.search(r"[A-Za-z]", v):
+            raise ValueError("Password must contain at least one letter.")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one number.")
+        return v
 
 
 class UserLogin(BaseModel):
