@@ -230,6 +230,38 @@ All endpoints except `/register`, `/login`, and `/health` require
   ones. Reasonable at this scope; a larger project would use Alembic
   instead.
 
+## How I'd scale this to real traffic
+
+None of this is built — the brief is explicit about not overengineering a
+small assignment, and I agree with that call. But it's worth being clear
+about where the current design's edges are and what I'd actually change:
+
+- **SQLite → Postgres.** SQLite is fine for one process and this data
+  volume; it isn't built for concurrent writers across multiple app
+  instances.
+- **Decision cache → Redis.** The on-disk JSON cache (`decision.py`) works
+  for one process; a real deployment needs it shared across instances,
+  with TTL tied to policy-doc versioning instead of "forever."
+- **Rate limiter → Redis-backed.** Same reasoning as the cache — the
+  current in-memory limiter (`rate_limit.py`) only sees one process's
+  traffic.
+- **Sync Gemini/Groq SDK calls → async, off the request path.** Right now
+  a ticket submission blocks on the LLM call. At real volume I'd put
+  ticket creation and decision generation behind a queue (e.g. the ticket
+  is created immediately with a "pending" decision, a worker calls the LLM
+  and updates it, the frontend polls or gets a websocket push) so a slow
+  provider doesn't hold an HTTP request open.
+- **Structured JSON logging → an actual observability stack.** The
+  latency/token-count logging that's there now is a good start, but at
+  scale it needs to go somewhere queryable (Datadog, Grafana + Loki, etc.),
+  not stdout.
+- **Alembic instead of the hand-rolled column-adder** in `database.py` —
+  fine for one dev iterating fast, not fine once there's real user data
+  to migrate carefully.
+
+None of this changes the actual decision logic or the RAG approach — those
+would stay the same; only the infrastructure around them would change.
+
 ## Project structure
 
 ```
