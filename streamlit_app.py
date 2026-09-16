@@ -35,6 +35,27 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+PRODUCT_TYPE_LABELS = {
+    "": "— Select —",
+    "food": "🍎 Food",
+    "non_food": "📦 Non-food",
+    "mixed": "🍎📦 Mixed",
+    "unknown": "❓ Unknown",
+}
+OPENED_STATUS_LABELS = {
+    "": "— Select —",
+    "opened": "📂 Opened",
+    "unopened": "📦 Unopened (sealed)",
+    "unknown": "❓ Unknown",
+}
+ORDER_STATUS_LABELS = {
+    "": "— Select —",
+    "processing": "⏳ Processing",
+    "dispatched": "🚚 Dispatched",
+    "delivered": "✅ Delivered",
+    "unknown": "❓ Unknown",
+}
+
 PROVIDER_LABELS = {
     "gemini": "🟢 Primary AI (Gemini)",
     "groq": "🟡 Backup AI (Groq)",
@@ -246,15 +267,25 @@ def new_decision_page():
                     "Days since delivery (leave blank if not delivered)"
                 )
                 product_type = st.selectbox(
-                    "Product type", ["", "food", "non_food", "mixed", "unknown"]
+                    "Product type",
+                    list(PRODUCT_TYPE_LABELS.keys()),
+                    format_func=lambda v: PRODUCT_TYPE_LABELS[v],
+                    help="Food items follow a different, stricter return policy than everything else.",
                 )
             with col2:
                 days_since_dispatch = st.text_input(
                     "Days since dispatch (leave blank if not dispatched)"
                 )
-                opened_status = st.selectbox("Opened status", ["", "opened", "unopened", "unknown"])
+                opened_status = st.selectbox(
+                    "Opened status",
+                    list(OPENED_STATUS_LABELS.keys()),
+                    format_func=lambda v: OPENED_STATUS_LABELS[v],
+                    help="Unopened non-food items are eligible for change-of-mind returns; opened ones aren't.",
+                )
                 order_status = st.selectbox(
-                    "Order status", ["", "processing", "dispatched", "delivered", "unknown"]
+                    "Order status",
+                    list(ORDER_STATUS_LABELS.keys()),
+                    format_func=lambda v: ORDER_STATUS_LABELS[v],
                 )
 
         submitted = st.form_submit_button("Get AI Decision", use_container_width=True)
