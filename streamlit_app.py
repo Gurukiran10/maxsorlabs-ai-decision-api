@@ -35,6 +35,78 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Streamlit already ships a full Light/Dark/System theme switcher (⋮ menu ->
+# Settings -> "Choose app theme, colors and fonts"). That's the officially
+# supported way to do this, and it's what a default Streamlit app gives you
+# for free. This toggle exists in addition to that, specifically because a
+# switch on the main screen (rather than three clicks into a menu) was asked
+# for. It works by overriding Streamlit's internal `data-testid` selectors
+# with CSS - those are more stable than arbitrary class names, but they're
+# still an implementation detail Streamlit could change in a future release,
+# unlike the native picker above. Session-only: it resets on page reload,
+# same as most Streamlit session state.
+LIGHT_MODE_CSS = """
+<style>
+.stApp { background-color: #ffffff; color: #1a1a1a; }
+[data-testid="stSidebar"] { background-color: #f5f5f7; }
+[data-testid="stSidebar"] * { color: #1a1a1a; }
+.stApp p, .stApp span, .stApp label, .stApp h1, .stApp h2, .stApp h3,
+.stApp h4, .stApp div { color: #1a1a1a; }
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+[data-testid="stNumberInput"] input,
+[data-baseweb="select"] > div {
+    background-color: #f0f0f2 !important;
+    color: #1a1a1a !important;
+    border-color: #d0d0d5 !important;
+}
+[data-testid="stExpander"] {
+    background-color: #f9f9fb;
+    border: 1px solid #e0e0e5;
+}
+[data-testid="stForm"] {
+    background-color: #fafafa;
+    border: 1px solid #e5e5ea;
+}
+/* Broad base rule catches every button "kind" Streamlit ships
+   (primary, secondary, primaryFormSubmit, secondaryFormSubmit, icon, ...)
+   instead of enumerating each one, which is what actually broke on the
+   form submit button and the password-reveal icon in testing. */
+.stApp button {
+    background-color: #ffffff !important;
+    color: #1a1a1a !important;
+    border: 1px solid #d0d0d5 !important;
+}
+/* Icon-only buttons (password reveal, etc.) should stay borderless/flush
+   with the input they sit inside, not look like a separate button. */
+[data-testid="stTextInputRootElement"] button {
+    background-color: transparent !important;
+    border: none !important;
+}
+[data-testid="stCaptionContainer"] { color: #555555 !important; }
+</style>
+"""
+
+
+def render_theme_toggle():
+    """Visible light/dark toggle in the main content area, as requested -
+    not the native Settings menu. See LIGHT_MODE_CSS docstring above."""
+    st.session_state.setdefault("theme", "dark")
+    _, col_toggle = st.columns([8, 1])
+    with col_toggle:
+        is_light = st.toggle(
+            "☀️" if st.session_state.theme == "light" else "🌙",
+            value=(st.session_state.theme == "light"),
+            key="theme_toggle_widget",
+            help="Switch between light and dark mode",
+        )
+    new_theme = "light" if is_light else "dark"
+    if new_theme != st.session_state.theme:
+        st.session_state.theme = new_theme
+        st.rerun()
+    if st.session_state.theme == "light":
+        st.markdown(LIGHT_MODE_CSS, unsafe_allow_html=True)
+
 PRODUCT_TYPE_LABELS = {
     "": "— Select —",
     "food": "🍎 Food",
@@ -139,6 +211,7 @@ if "email" not in st.session_state:
 
 
 def login_register_page():
+    render_theme_toggle()
     _, center, _ = st.columns([1, 1.4, 1])
     with center:
         card = st.container(border=True)
@@ -391,6 +464,8 @@ def main():
     if not st.session_state.token:
         login_register_page()
         return
+
+    render_theme_toggle()
 
     with st.sidebar:
         st.write(f"Logged in as **{st.session_state.email}**")
