@@ -168,7 +168,7 @@ All endpoints except `/register`, `/login`, and `/health` require
   `GEMINI_API_KEY`/`JWT_SECRET` at startup, not on the first request that
   happens to need them.
 - **Optional Groq fallback provider.** Gemini gets two attempts; if both
-  fail and `GROQ_API_KEY` is set, two attempts go to Groq (Llama 3.3 70B)
+  fail and `GROQ_API_KEY` is set, two attempts go to Groq (`openai/gpt-oss-120b`)
   before finally giving up and returning `NEEDS_MORE_INFORMATION`. Groq is
   entirely separate infrastructure and quota from Google, so this is a real
   redundancy path, not just a second call against the same limit — directly

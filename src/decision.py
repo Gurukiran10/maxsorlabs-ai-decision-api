@@ -50,7 +50,7 @@ GEMINI_MODEL = "gemini-3.6-flash"
 # development, not a hypothetical one). Groq's free tier is generous and
 # entirely separate infrastructure/quota from Google's, so it's a genuine
 # redundancy path rather than just a second call to the same limit.
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 # Minimum cosine similarity the best-matching policy chunk must clear before
 # the LLM is even consulted. Empirically, genuinely relevant tickets score
