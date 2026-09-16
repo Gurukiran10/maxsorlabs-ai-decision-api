@@ -4,6 +4,7 @@ structured decision, validate it, and fall back safely on failure."""
 import hashlib
 import json
 import logging
+import time
 
 from google import genai
 
@@ -135,10 +136,22 @@ def _extract_json(raw_text: str) -> dict:
 
 def _call_llm(prompt: str) -> str:
     client = _get_client()
+    start = time.monotonic()
     response = client.models.generate_content(
         model=GENERATION_MODEL,
         contents=prompt,
         config={"temperature": 0.1, "response_mime_type": "application/json"},
+    )
+    latency_ms = (time.monotonic() - start) * 1000
+
+    usage = response.usage_metadata
+    logger.info(
+        "gemini_call model=%s latency_ms=%.0f prompt_tokens=%s output_tokens=%s total_tokens=%s",
+        GENERATION_MODEL,
+        latency_ms,
+        getattr(usage, "prompt_token_count", None),
+        getattr(usage, "candidates_token_count", None),
+        getattr(usage, "total_token_count", None),
     )
     return response.text
 

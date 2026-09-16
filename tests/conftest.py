@@ -15,11 +15,17 @@ from sqlalchemy.pool import StaticPool
 
 from src import api as api_module
 from src.database import Base, get_db
+from src.rate_limit import reset_rate_limits
 from src.schemas import LLMDecision
 
 
 @pytest.fixture()
 def client(monkeypatch):
+    # User ids restart from 1 in each test's fresh in-memory database, but
+    # the rate limiter's state is a module-level global keyed by user id, so
+    # it must be reset between tests to avoid cross-test bleed.
+    reset_rate_limits()
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},

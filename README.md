@@ -81,6 +81,23 @@ This runs the pipeline against `eval/sample_test_cases.json` (from the
 supplied candidate pack) and prints per-case pass/fail plus overall accuracy.
 This requires a valid `GEMINI_API_KEY` since it calls the real LLM end to end.
 
+### Full-dataset evaluation
+
+`eval/sample_test_cases.json` is only 5 rows. `data/tickets.csv` has ~214
+historical tickets with a `resolved_action` column, which is a much
+stronger accuracy signal. Per `DATA_NOTES.md`, the decision pipeline never
+looks up this file — `resolved_action` is only read by the eval script,
+after the fact, to score what the pipeline independently decided.
+
+```bash
+python -m eval.run_full_eval --limit 20 --seed 1
+```
+
+`--limit` caps how many (randomly sampled, seeded for reproducibility) rows
+are evaluated per run, since the free Gemini tier caps at 20 requests/day —
+drop `--limit` to attempt all rows if you have a higher quota. Prints a
+per-action-type accuracy breakdown and lists every mismatch.
+
 ## API
 
 | Method | Endpoint         | Purpose                                   |
@@ -144,6 +161,32 @@ All endpoints except `/register`, `/login`, and `/health` require
 - **Config fails fast.** `src/config.py` uses `pydantic-settings` to validate
   `GEMINI_API_KEY`/`JWT_SECRET` at startup, not on the first request that
   happens to need them.
+- **Ticket + decision commit atomically.** The ticket row is flushed (gets an
+  id) but not committed until its decision is also ready; if the decision
+  pipeline raises, the transaction rolls back rather than leaving an
+  orphaned ticket with no decision in the database.
+- **`product_type`/`opened_status`/`order_status` are validated enums, not
+  free strings.** Garbage in these fields would silently corrupt both the DB
+  row and the text handed to the LLM prompt, so invalid values are rejected
+  with a 422 instead of flowing through. (This also surfaced a real Python
+  gotcha during development: `str(SomeStrEnum.MEMBER)` renders as
+  `"ClassName.MEMBER"`, not the member's value — `model_dump(mode="json")`
+  is used everywhere a ticket dict is built from the Pydantic model, to get
+  the actual string value instead.)
+- **Per-user rate limiting on `/tickets`.** A simple in-memory sliding-window
+  limiter (10 requests/60s per user) protects the one endpoint that spends a
+  real, quota-limited LLM call — directly motivated by hitting the Gemini
+  free-tier's daily cap during development. Documented in `src/rate_limit.py`
+  as intentionally single-process/in-memory at this scope; a multi-instance
+  deployment would back this with Redis instead.
+- **Global exception handler.** Any exception that isn't already an
+  `HTTPException` is caught, logged server-side with a short error id, and
+  returned to the client as a generic 500 with that id — never a raw Python
+  traceback.
+- **Per-call latency and token usage are logged.** Every Gemini
+  `generate_content` call logs latency and prompt/output/total token counts,
+  which is standard LLM-ops practice for a system whose per-request cost
+  isn't fixed.
 
 ## Project structure
 

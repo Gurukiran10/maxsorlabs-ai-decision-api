@@ -5,6 +5,26 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
+class ProductType(str, Enum):
+    FOOD = "food"
+    NON_FOOD = "non_food"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class OpenedStatus(str, Enum):
+    OPENED = "opened"
+    UNOPENED = "unopened"
+    UNKNOWN = "unknown"
+
+
+class OrderStatus(str, Enum):
+    PROCESSING = "processing"
+    DISPATCHED = "dispatched"
+    DELIVERED = "delivered"
+    UNKNOWN = "unknown"
+
+
 class ActionEnum(str, Enum):
     APPROVE_RETURN = "APPROVE_RETURN"
     REJECT_OUTSIDE_WINDOW = "REJECT_OUTSIDE_WINDOW"
@@ -54,17 +74,17 @@ class UserResponse(BaseModel):
 
 class TicketCreate(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
-    order_value_inr: Optional[float] = None
-    days_since_delivery: Optional[int] = None
-    days_since_dispatch: Optional[int] = None
-    product_type: Optional[str] = None  # food | non_food | mixed | unknown
-    opened_status: Optional[str] = None  # opened | unopened | unknown
-    order_status: Optional[str] = None  # processing | dispatched | delivered | unknown
+    order_value_inr: Optional[float] = Field(default=None, ge=0)
+    days_since_delivery: Optional[int] = Field(default=None, ge=0)
+    days_since_dispatch: Optional[int] = Field(default=None, ge=0)
+    product_type: Optional[ProductType] = None
+    opened_status: Optional[OpenedStatus] = None
+    order_status: Optional[OrderStatus] = None
 
-    @field_validator("product_type", "opened_status", "order_status")
+    @field_validator("product_type", "opened_status", "order_status", mode="before")
     @classmethod
-    def normalize_lower(cls, v: Optional[str]) -> Optional[str]:
-        return v.lower().strip() if v else v
+    def normalize_lower(cls, v):
+        return v.lower().strip() if isinstance(v, str) else v
 
 
 class DecisionResponse(BaseModel):
