@@ -225,13 +225,13 @@ def new_decision_page():
             height=100,
             placeholder="e.g. My order arrived damaged, the box was crushed",
         )
-        st.caption("*Required. Everything below is optional.")
+        st.caption("*Required · **Strongly recommended. Everything else is optional.")
 
         with st.expander("📋 Order details (optional — improves accuracy)"):
             col1, col2 = st.columns(2)
             with col1:
                 order_value = st.number_input(
-                    "⭐ Order value (INR) — strongly recommended",
+                    "Order value (INR) **",
                     min_value=0.0,
                     step=100.0,
                     value=0.0,

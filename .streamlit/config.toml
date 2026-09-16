@@ -1,0 +1,6 @@
+[client]
+# Hides the "Deploy" button and Streamlit's own menu items from the
+# top-right toolbar. Not relevant for this assignment (it deploys to
+# Streamlit Community Cloud, which isn't part of the required setup) and
+# was confusing during local demos.
+toolbarMode = "minimal"
