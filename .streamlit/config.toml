@@ -3,3 +3,16 @@
 # Community Cloud) while keeping the rest of the top-right menu (Settings,
 # Rerun, About, etc.) intact. "minimal" would hide the whole menu too.
 toolbarMode = "viewer"
+
+[theme]
+# Streamlit's official theming system - the supported way to give the app a
+# consistent, deliberate visual identity, instead of overriding internal
+# CSS selectors (which fights the framework and breaks on internals that
+# aren't a public API). Users can still switch Light/Dark/System via the
+# native Settings menu; this just sets what the default (dark) looks like.
+base = "dark"
+primaryColor = "#6366F1"
+backgroundColor = "#0F1117"
+secondaryBackgroundColor = "#1A1D24"
+textColor = "#E5E7EB"
+font = "sans serif"
