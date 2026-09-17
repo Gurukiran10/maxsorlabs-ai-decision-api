@@ -13,6 +13,10 @@ Groq fallback).
 supplied sample test cases · dual LLM providers with automatic failover ·
 decisions cached by content hash · per-user rate limiting.
 
+## Screenshot
+
+![A decision result showing "Photos Needed Before We Can Approve" at 95% confidence, answered by the Groq fallback provider, citing the Damaged Goods Policy](docs/screenshot-decision.png)
+
 ## Architecture
 
 ```
